@@ -168,6 +168,12 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     a += PGSIZE;
     pa += PGSIZE;
   }
+  // Add to the LRU list and store reverse mapping information only if it is a PTE_U (User page)
+  if(perm & PTE_U) {
+    pages[pa/PGSIZE].pagetable = pagetable;
+    pages[pa/PGSIZE].vaddr = (char *)va;
+    lru_add(pa);
+  }
   return 0;
 }
 
@@ -192,6 +198,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
+      // Remove from LRU when page is released
+      lru_remove(pa);
       kfree((void*)pa);
     }
     *pte = 0;

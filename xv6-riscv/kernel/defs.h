@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct page;
 
 // bio.c
 void            binit(void);
@@ -66,6 +67,12 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+void            lru_init(void);
+void            lru_add(uint64);
+void            lru_remove(uint64);
+extern struct page pages[];
+extern struct spinlock swap_lock;
+extern int swap_bitmap[];
 
 // log.c
 void            initlog(int, struct superblock*);

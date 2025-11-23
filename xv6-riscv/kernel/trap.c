@@ -67,7 +67,79 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } else if(r_scause() == 13 || r_scause() == 15){
+    // Page Fault (13: Load, 15: Store)
+    uint64 va = r_stval();
+    uint64 pa;
+    uint flags;
+    char *mem;
+    pte_t *pte;
+    struct proc *p = myproc();
+
+    // 1. Check if the virtual address is valid
+    // It must be within the process size and not in the guard page
+    if(va >= p->sz || (va < PGROUNDDOWN(p->trapframe->sp) && va >= PGROUNDDOWN(p->trapframe->sp) - PGSIZE))
+    {
+      setkilled(p);
+      exit(-1);
+    }
+
+    // 2. Find the PTE
+    // walk() returns the PTE address. 0 means allocate=0 (don't create new tables)
+    if((pte = walk(p->pagetable, va, 0)) == 0)
+    {
+      // Segmentation fault: Accessing unmapped address
+      setkilled(p);
+      exit(-1);
+    }
+
+    // 3. Check if the page is swapped out
+    // It must be Invalid (PTE_V is 0) and Swapped (PTE_S is 1)
+    if((*pte & PTE_V) == 0 && (*pte & PTE_S))
+    {
+      // 4. Allocate a new physical page
+      if((mem = kalloc()) == 0)
+      {
+        // Out of memory
+        setkilled(p);
+        exit(-1);
+      }
+      pa = (uint64)mem;
+
+      // 5. Swap In operation
+      // Extract swap index from PPN field (top 54 bits)
+      uint swap_idx = (*pte) >> 10;
+      
+      // Read from swap space (1 page = 8 blocks)
+      swapread(pa, swap_idx * 8);
+
+      // 6. Free the swap space in bitmap
+      acquire(&swap_lock);
+      swap_bitmap[swap_idx] = 0;
+      release(&swap_lock);
+
+      // 7. Restore PTE
+      // Retrieve original flags (bottom 10 bits) but turn off PTE_S and turn on PTE_V
+      flags = PTE_FLAGS(*pte);
+      flags &= ~PTE_S; // Clear Swapped bit
+      flags |= PTE_V;  // Set Valid bit
+
+      // Update the PTE with the new physical address and flags
+      *pte = PA2PTE(pa) | flags;
+
+      // 8. Add to LRU list
+      // Since we updated PTE manually (not via mappages), we must call lru_add manually
+      lru_add(pa);
+
+      // 9. Flush TLB
+      sfence_vma();
+    } 
+    else 
+    {
+      setkilled(p);
+      exit(-1);
+    }
+  } else { 
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
     setkilled(p);

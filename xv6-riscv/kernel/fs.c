@@ -712,7 +712,7 @@ swapread(uint64 ptr, int blkno)
   for(i = 0; i < BLKS_PER_PG; i++){
     nr_sectors_read++;
     bp = bread(0, SWAPBASE + BLKS_PER_PG * blkno + i);
-    if(either_copyout(1, ptr + i * BSIZE, bp->data, BSIZE) == -1)
+    if(either_copyout(0, ptr + i * BSIZE, bp->data, BSIZE) == -1)
       panic("swapread: either_copyout failed");
     brelse(bp);
   }
@@ -732,7 +732,7 @@ swapwrite(uint64 ptr, int blkno)
   for(i = 0; i < BLKS_PER_PG; i++){
     nr_sectors_write++;
     bp = bread(0, SWAPBASE + BLKS_PER_PG * blkno + i);
-    if(either_copyin(bp->data, 1, ptr + i * BSIZE, BSIZE) == -1)
+    if(either_copyin(bp->data, 0, ptr + i * BSIZE, BSIZE) == -1)
       panic("swapwrite: either_copyin failed");
     bwrite(bp);
     brelse(bp);
