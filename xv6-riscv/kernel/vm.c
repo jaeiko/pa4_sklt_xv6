@@ -192,8 +192,24 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
       panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+    
+    if((*pte & PTE_V) == 0) {
+      if(*pte & PTE_S) { // What if it's a swapped page?
+        if(do_free) {
+          // Unmaps swap bitmaps
+          uint swap_idx = (*pte) >> 10;
+          acquire(&swap_lock);
+          swap_bitmap[swap_idx] = 0;
+          release(&swap_lock);
+        }
+          // Initialize PTE and go to the next page
+          *pte = 0;
+          continue; 
+      } else {
+        // No swap, no valid -> real error
+        panic("uvmunmap: not mapped");
+      }
+    }
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -328,13 +344,50 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+    
+    // Processing swapped pages (copy after swap-in)
+    if((*pte & PTE_V) == 0) {
+        if(*pte & PTE_S) {
+            // 1. Physical page assignment
+            if((mem = kalloc()) == 0) goto err;
+            pa = (uint64)mem;
+
+            // 2. Swap-in (Swap Read)
+            uint swap_idx = (*pte) >> 10;
+            swapread(pa, swap_idx);
+
+            // 3. Unmaps swap bitmaps
+            acquire(&swap_lock);
+            swap_bitmap[swap_idx] = 0;
+            release(&swap_lock);
+
+            // 4. Parent Page Table (old) Update (Swap State -> Memory State)
+            flags = PTE_FLAGS(*pte);
+            flags &= ~PTE_S; 
+            flags |= PTE_V;
+            *pte = PA2PTE(pa) | flags;
+
+            // 5. Add LRU list
+            lru_add(pa);
+            
+            // 6. TLB flush (for parent process)
+            sfence_vma();
+            
+            // Common Copy Logic (Pages in Memory)
+        } else {
+            panic("uvmcopy: page not present");
+        }
+    }
+    
+    // 공통 복사 로직 (메모리에 있는 페이지)
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
+    
     if((mem = kalloc()) == 0)
       goto err;
+      
     memmove(mem, (char*)pa, PGSIZE);
+    
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;

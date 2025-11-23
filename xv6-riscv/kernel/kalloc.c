@@ -38,8 +38,8 @@ struct page pages[PHYSTOP/PGSIZE]; // Physical Page Metadata Arrangement
 struct page *lru_head = 0;         // LRU List Head
 
 // Bitmap for Swap Space management (simple array implementation)
-// 8 blocks per page (4096 / 512 = 8)
-int swap_bitmap [SWAPMAX / 8]; // 1 is in use; 0 is empty
+// 4 blocks per page
+int swap_bitmap [SWAPMAX / 4]; // 1 is in use; 0 is empty
 struct spinlock swap_lock;
 
 
@@ -119,6 +119,13 @@ lru_remove(uint64 pa)
 {
   struct page *p = &pages[pa / PGSIZE];
   acquire(&lru_lock);
+  
+  // Ignore pages that are not in the LRU list (already removed or never added)
+  if(p->next == 0){
+    release(&lru_lock);
+    return;
+  }
+
   if(p->next == p) { // When there is only one in the list
       lru_head = 0;
   } else {
@@ -144,29 +151,30 @@ swap_out(void)
 
   acquire(&lru_lock);
 
+  // Check if LRU list is empty
+  if(lru_head == 0) {
+    release(&lru_lock);
+    return 0; 
+  }
+
   // 1. Select a victim page using Clock Algorithm
-  // Iterate through the circular linked list starting from lru_head
   p = lru_head;
   while(1){
-    // Get the PTE corresponding to this page
-    // We use the 'pagetable' and 'vaddr' stored in struct page
     pte = walk(p->pagetable, (uint64)p->vaddr, 0);
 
-    // If the page has been accessed (PTE_A is set)
     if((*pte) & PTE_A){
-      *pte &= ~PTE_A;     // Clear Access bit (Give a second chance)
-      p = p->next;        // Move to the next page
+      *pte &= ~PTE_A;     // Give second chance
+      p = p->next;
     } else {
-      // Victim found (PTE_A is 0)
-      break;
+      break; // Victim found
     }
   }
 
-  // 2. Allocate swap space (Bitmap search)
+  // 2. Allocate swap space
   acquire(&swap_lock);
-  for(i = 0; i < (SWAPMAX / 8); i++){
+  for(i = 0; i < (SWAPMAX / 4); i++){
     if(swap_bitmap[i] == 0){
-      swap_bitmap[i] = 1; // Mark as used
+      swap_bitmap[i] = 1;
       swap_idx = i;
       break;
     }
@@ -176,53 +184,43 @@ swap_out(void)
   if(swap_idx == -1)
     panic("swap_out: Out of swap space");
 
-  // 3. Write page to disk (Swap space)
-  // Calculate physical address from the page structure index
-  pa = (p - pages) * PGSIZE;
-
-  // swapwrite takes physical address and block number.
-  // 1 page = 4096 bytes, 1 block = 512 bytes -> 8 blocks per page
-  swapwrite(pa, swap_idx * 8);
-
-  // 4. Update PTE
-  *pte &= ~PTE_V;       // Clear Valid bit (Page is no longer in memory)
-  *pte |= PTE_S;        // Set Swapped bit (Custom flag to indicate swap)
-
-  // Store the swap index in the PPN field of the PTE
-  // We clear the old PPN (top 54 bits) and set the new swap index
-  // 0x3FF is the mask for flags (10 bits)
-  *pte = ((*pte) & 0x3FF) | ((uint64)swap_idx << 10);
-
-  // 5. Flush TLB to ensure CPU doesn't use stale mapping
-  sfence_vma();
-
-  // 6. Remove from LRU list and return physical page
-  // Since we hold lru_lock, we manipulate pointers directly
-
+  // 3. Remove from LRU list BEFORE releasing lock
+  // This prevents other CPUs from picking the same victim
   if(p->next == p){
-    // List has only one element
     lru_head = 0;
   } else {
-    // Remove p from the list
     p->prev->next = p->next;
     p->next->prev = p->prev;
-
-    // If we are removing the head, advance the head
     if(lru_head == p)
       lru_head = p->next;
   }
-
-  // Clear pointers for safety
   p->next = 0;
   p->prev = 0;
 
-  // Release the lock before returning
-  release(&lru_lock);
+  pa = (p - pages) * PGSIZE;
 
+  // Release lock to allow I/O sleep
+  release(&lru_lock);
+  
+  // 4. Write page to disk (Safe now, this page is private)
+  swapwrite(pa, swap_idx); 
+  
+  // 5. Update PTE
+  // We don't need lru_lock here because we operate on the PTE directly
+  // and the physical page is ours to free.
+  // However, we need to ensure atomicity of PTE update if possible, 
+  // but for this assignment logic, direct update is standard.
+  
+  *pte &= ~PTE_V;       
+  *pte |= PTE_S;        
+  *pte = ((*pte) & 0x3FF) | ((uint64)swap_idx << 10);
+
+  // 6. Flush TLB
+  sfence_vma();
+
+  // Return the physical address to be reused by kalloc
   return (void*)pa;
 }
-
-
 
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.

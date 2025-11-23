@@ -8,7 +8,7 @@ test_swap(void)
 {
   int i;
   int PGSIZE = 4096;
-  int num_pages = 2000; // Assuming PHYSTOP is reduced, this should trigger swap
+  int num_pages = 10000; // Assuming PHYSTOP is reduced, this should trigger swap
   char *ptr;
   int pid;
 

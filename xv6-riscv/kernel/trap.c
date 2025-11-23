@@ -67,8 +67,8 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else if(r_scause() == 13 || r_scause() == 15){
-    // Page Fault (13: Load, 15: Store)
+  } else if(r_scause() == 13 || r_scause() == 15 || r_scause() == 12){
+    // Page Fault (12: Instruction, 13: Load, 15: Store)
     uint64 va = r_stval();
     uint64 pa;
     uint flags;
@@ -110,8 +110,8 @@ usertrap(void)
       // Extract swap index from PPN field (top 54 bits)
       uint swap_idx = (*pte) >> 10;
       
-      // Read from swap space (1 page = 8 blocks)
-      swapread(pa, swap_idx * 8);
+      // Read from swap space
+      swapread(pa, swap_idx);
 
       // 6. Free the swap space in bitmap
       acquire(&swap_lock);
