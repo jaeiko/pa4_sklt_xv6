@@ -345,16 +345,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     
-    // [FIX] Processing swapped pages (Swap-in logic)
+    // Case 1: Page is Swapped Out
     if((*pte & PTE_V) == 0) {
         if(*pte & PTE_S) {
-            // 1. Allocate physical page for PARENT
-            if((mem = kalloc()) == 0) goto err;
-            pa = (uint64)mem;
+            // 1. Allocate physical page for PARENT first
+            char *parent_mem = kalloc();
+            if(parent_mem == 0) goto err;
+            uint64 parent_pa = (uint64)parent_mem;
 
             // 2. Swap-in to PARENT's new page
             uint swap_idx = (*pte) >> 10;
-            swapread(pa, swap_idx);
+            swapread(parent_pa, swap_idx);
 
             // 3. Clear swap bitmap
             acquire(&swap_lock);
@@ -365,31 +366,46 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
             flags = PTE_FLAGS(*pte);
             flags &= ~PTE_S; 
             flags |= PTE_V;
-            flags |= PTE_A;
-            *pte = PA2PTE(pa) | flags;
+            flags |= PTE_A; 
+            *pte = PA2PTE(parent_pa) | flags;
 
-            // 5. Add PARENT's page to LRU
-            lru_add(pa);
+            // 5. Allocate memory for CHILD
+            if((mem = kalloc()) == 0) {
+                // Use parent_pa (which holds the address), not uninitialized 'pa'
+                kfree((void*)parent_pa); 
+                goto err;
+            }
             
-            // 6. Flush TLB
+            // 6. Copy data from Parent to Child
+            memmove(mem, parent_mem, PGSIZE);
+            
+            // 7. Add Parent page to LRU list
+            lru_add(parent_pa);
+            
+            // 8. Map Child Page
+            if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+              kfree(mem);
+              goto err;
+            }
+
+            // 9. Flush TLB
             sfence_vma();
             
-            // Remove 'continue' so that execution falls through
-            // to the copying logic below. We want to copy this swapped-in page
-            // to the child process as well.
-        } else {
-            panic("uvmcopy: page not present");
+            continue; 
+        } 
+        else {
+          panic("uvmcopy: page not present");
         }
     }
     
-    // Common Copy Logic (Copy Parent's memory to Child)
+    // Case 2: Normal Page (In Memory)
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     
-    if((mem = kalloc()) == 0) // Allocate for CHILD
+    if((mem = kalloc()) == 0)
       goto err;
       
-    memmove(mem, (char*)pa, PGSIZE); // Copy data
+    memmove(mem, (char*)pa, PGSIZE);
     
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
