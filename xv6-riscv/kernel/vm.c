@@ -345,48 +345,51 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     
-    // Processing swapped pages (copy after swap-in)
+    // [FIX] Processing swapped pages (Swap-in logic)
     if((*pte & PTE_V) == 0) {
         if(*pte & PTE_S) {
-            // 1. Physical page assignment
+            // 1. Allocate physical page for PARENT
             if((mem = kalloc()) == 0) goto err;
             pa = (uint64)mem;
 
-            // 2. Swap-in (Swap Read)
+            // 2. Swap-in to PARENT's new page
             uint swap_idx = (*pte) >> 10;
             swapread(pa, swap_idx);
 
-            // 3. Unmaps swap bitmaps
+            // 3. Clear swap bitmap
             acquire(&swap_lock);
             swap_bitmap[swap_idx] = 0;
             release(&swap_lock);
 
-            // 4. Parent Page Table (old) Update (Swap State -> Memory State)
+            // 4. Update PARENT's PTE (Swap -> Memory)
             flags = PTE_FLAGS(*pte);
             flags &= ~PTE_S; 
             flags |= PTE_V;
+            flags |= PTE_A;
             *pte = PA2PTE(pa) | flags;
 
-            // 5. Add LRU list
+            // 5. Add PARENT's page to LRU
             lru_add(pa);
             
-            // 6. TLB flush (for parent process)
+            // 6. Flush TLB
             sfence_vma();
             
-            // Common Copy Logic (Pages in Memory)
+            // Remove 'continue' so that execution falls through
+            // to the copying logic below. We want to copy this swapped-in page
+            // to the child process as well.
         } else {
             panic("uvmcopy: page not present");
         }
     }
     
-    // 공통 복사 로직 (메모리에 있는 페이지)
+    // Common Copy Logic (Copy Parent's memory to Child)
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     
-    if((mem = kalloc()) == 0)
+    if((mem = kalloc()) == 0) // Allocate for CHILD
       goto err;
       
-    memmove(mem, (char*)pa, PGSIZE);
+    memmove(mem, (char*)pa, PGSIZE); // Copy data
     
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
