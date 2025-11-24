@@ -378,6 +378,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
             
             // 6. Copy data from Parent to Child
             memmove(mem, parent_mem, PGSIZE);
+
+            pages[parent_pa / PGSIZE].pagetable = old;
+            pages[parent_pa / PGSIZE].vaddr = (char*)i;
             
             // 7. Add Parent page to LRU list
             lru_add(parent_pa);
