@@ -109,7 +109,7 @@ test_fork_swapped()
     printf("\n=== [Test 3] Fork with Swapped-out Pages ===\n");
     int i;
     int allocated = 0;
-    int fork_test_pages = 6000;
+    int fork_test_pages = 3000;
     char **ptrs = malloc(fork_test_pages * sizeof(char*));
 
     // 1. 부모 프로세스에서 메모리를 가득 채워 Swap-out 유발

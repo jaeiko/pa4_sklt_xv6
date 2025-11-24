@@ -167,7 +167,7 @@ swap_out(void)
 
     if((*pte) & PTE_A){
       *pte &= ~PTE_A;     // Give second chance
-      p = p->next;
+      p = p->prev;
     } else {
       break; // Victim found
     }
@@ -209,7 +209,7 @@ swap_out(void)
   release(&lru_lock);
   
   // 4. Write page to disk (Safe now, this page is private)
-  swapwrite(pa, swap_idx); 
+  swapwrite(pa, swap_idx, 0); 
   
   // 5. Update PTE
   // // Turn off PTE_V (Valid) and turn on PTE_S (Swapped)

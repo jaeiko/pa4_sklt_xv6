@@ -55,8 +55,8 @@ void            stati(struct inode*, struct stat*);
 int             writei(struct inode*, int, uint64, uint, uint);
 void            itrunc(struct inode*);
 // pa5: function defs
-void swapread(uint64 ptr, int blkno);
-void swapwrite(uint64 ptr, int blkno);
+void            swapread(uint64 ptr, int blkno, int user_dst);
+void            swapwrite(uint64 ptr, int blkno, int user_src);
 
 // ramdisk.c
 void            ramdiskinit(void);

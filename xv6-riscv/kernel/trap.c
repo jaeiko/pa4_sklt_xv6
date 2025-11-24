@@ -111,7 +111,7 @@ usertrap(void)
       uint swap_idx = (*pte) >> 10;
       
       // Read from swap space
-      swapread(pa, swap_idx);
+      swapread(pa, swap_idx, 0);
 
       // 6. Free the swap space in bitmap
       acquire(&swap_lock);

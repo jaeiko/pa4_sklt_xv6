@@ -514,7 +514,7 @@ sys_swapread(void)
     argaddr(0, &ptr);
     argint(1, &blkno);
 
-    swapread(ptr, blkno);
+    swapread(ptr, blkno, 1);
     return 0;  // swapread는 void이므로 성공 시 0 반환
 }
 
@@ -527,7 +527,7 @@ sys_swapwrite(void)
     argaddr(0, &ptr);
     argint(1, &blkno);
 
-    swapwrite(ptr, blkno);
+    swapwrite(ptr, blkno, 1);
     return 0;  // swapwrite도 마찬가지로 0 반환
 }
 

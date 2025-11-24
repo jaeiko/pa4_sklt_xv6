@@ -356,7 +356,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
             // 2. Swap-in to PARENT's new page
             uint swap_idx = (*pte) >> 10;
-            swapread(parent_pa, swap_idx);
+            swapread(parent_pa, swap_idx, 0);
 
             // 3. Clear swap bitmap
             acquire(&swap_lock);
