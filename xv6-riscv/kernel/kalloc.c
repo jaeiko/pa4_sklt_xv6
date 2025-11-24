@@ -28,11 +28,6 @@ struct {
 } kmem;
 
 // pa4: struct for page control
-struct page pages[PHYSTOP/PGSIZE];
-struct page *page_lru_head;
-int num_free_pages;
-int num_lru_pages;
-
 struct spinlock lru_lock;
 struct page pages[PHYSTOP/PGSIZE]; // Physical Page Metadata Arrangement
 struct page *lru_head = 0;         // LRU List Head
@@ -84,6 +79,7 @@ kfree(void *pa)
   release(&kmem.lock);
 }
 
+// LRU and Swap Initialization Functions
 void
 lru_init()
 {
@@ -98,13 +94,15 @@ lru_init()
 void
 lru_add(uint64 pa)
 {
-  struct page *p = &pages[pa / PGSIZE];
+  struct page *p = &pages[pa / PGSIZE]; // Import page structures for that physical address
   acquire(&lru_lock);
   if(lru_head == 0) {
+    // If the list is empty, point to myself to create a circular list
     lru_head = p;
     p->next = p;
     p->prev = p;
   } else {
+    // Insert in front of the head of the list (considered the most recent used)
     p->next = lru_head;
     p->prev = lru_head->prev;
     lru_head->prev->next = p;
@@ -129,8 +127,10 @@ lru_remove(uint64 pa)
   if(p->next == p) { // When there is only one in the list
       lru_head = 0;
   } else {
+      // Disconnect link
       p->prev->next = p->next;
       p->next->prev = p->prev;
+      // If the node being removed was head, move the head to the next node
       if(lru_head == p) lru_head = p->next;
   }
   // Hang up the link for safety
@@ -174,13 +174,14 @@ swap_out(void)
   acquire(&swap_lock);
   for(i = 0; i < (SWAPMAX / 4); i++){
     if(swap_bitmap[i] == 0){
-      swap_bitmap[i] = 1;
+      swap_bitmap[i] = 1; // // Mark as in use
       swap_idx = i;
       break;
     }
   }
   release(&swap_lock);
 
+  // Swap space is full
   if(swap_idx == -1) {
     release(&lru_lock);
     return 0;
@@ -194,12 +195,12 @@ swap_out(void)
     p->prev->next = p->next;
     p->next->prev = p->prev;
     if(lru_head == p)
-      lru_head = p->next;
+      lru_head = p->next; // Move the head next (Clock needle movement effect)
   }
   p->next = 0;
   p->prev = 0;
 
-  pa = (p - pages) * PGSIZE;
+  pa = (p - pages) * PGSIZE;  // Calculate physical addresses with page structure indexes
 
   // Release lock to allow I/O sleep
   release(&lru_lock);
@@ -208,13 +209,10 @@ swap_out(void)
   swapwrite(pa, swap_idx); 
   
   // 5. Update PTE
-  // We don't need lru_lock here because we operate on the PTE directly
-  // and the physical page is ours to free.
-  // However, we need to ensure atomicity of PTE update if possible, 
-  // but for this assignment logic, direct update is standard.
-  
-  *pte &= ~PTE_V;       
-  *pte |= PTE_S;        
+  // // Turn off PTE_V (Valid) and turn on PTE_S (Swapped)
+  *pte &= ~PTE_V;
+  *pte |= PTE_S;     
+  // Save Swap Index to PTE upper bits   
   *pte = ((*pte) & 0x3FF) | ((uint64)swap_idx << 10);
 
   // 6. Flush TLB
