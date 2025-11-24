@@ -126,14 +126,22 @@ found:
   p->state = USED;
 
   // Allocate a trapframe page.
-  if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+  release(&p->lock); // Unlocking as a swap-out may occur during kalloc
+  struct trapframe *tf = (struct trapframe *)kalloc();
+  acquire(&p->lock); // Re-acquire lock
+
+  if((p->trapframe = tf) == 0){
     freeproc(p);
     release(&p->lock);
     return 0;
   }
 
   // An empty user page table.
-  p->pagetable = proc_pagetable(p);
+  release(&p->lock);
+  pagetable_t pt = proc_pagetable(p);
+  acquire(&p->lock);
+  
+  p->pagetable = pt;
   if(p->pagetable == 0){
     freeproc(p);
     release(&p->lock);
@@ -288,12 +296,17 @@ fork(void)
     return -1;
   }
 
+  release(&np->lock); 
+
   // Copy user memory from parent to child.
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+    acquire(&np->lock); // freeproc requires the lock
     freeproc(np);
     release(&np->lock);
     return -1;
   }
+
+  acquire(&np->lock); // Re-acquire the lock to modify np safely
   np->sz = p->sz;
 
   // copy saved user registers.

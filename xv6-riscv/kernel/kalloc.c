@@ -181,8 +181,10 @@ swap_out(void)
   }
   release(&swap_lock);
 
-  if(swap_idx == -1)
-    panic("swap_out: Out of swap space");
+  if(swap_idx == -1) {
+    release(&lru_lock);
+    return 0;
+  }
 
   // 3. Remove from LRU list BEFORE releasing lock
   // This prevents other CPUs from picking the same victim

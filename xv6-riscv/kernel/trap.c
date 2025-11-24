@@ -127,6 +127,9 @@ usertrap(void)
       // Update the PTE with the new physical address and flags
       *pte = PA2PTE(pa) | flags;
 
+      pages[pa/PGSIZE].pagetable = p->pagetable;
+      pages[pa/PGSIZE].vaddr = (char*)PGROUNDDOWN(va);
+
       // 8. Add to LRU list
       // Since we updated PTE manually (not via mappages), we must call lru_add manually
       lru_add(pa);
