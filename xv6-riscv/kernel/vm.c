@@ -202,12 +202,13 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
           swap_bitmap[swap_idx] = 0;
           release(&swap_lock);
         }
-          // Initialize PTE and go to the next page
-          *pte = 0;
-          continue; 
+        // Initialize PTE and go to the next page
+        *pte = 0;
+        continue; 
       } else {
         // No swap, no valid -> real error
-        panic("uvmunmap: not mapped");
+        // panic("uvmunmap: not mapped");
+        continue;
       }
     }
     if(PTE_FLAGS(*pte) == PTE_V)

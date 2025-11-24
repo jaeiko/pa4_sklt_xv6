@@ -103,9 +103,12 @@ lru_add(uint64 pa)
     p->prev = p;
   } else {
     // Insert in front of the head of the list (considered the most recent used)
+    struct page *tail = lru_head->prev;
+
     p->next = lru_head;
-    p->prev = lru_head->prev;
-    lru_head->prev->next = p;
+    p->prev = tail;
+    
+    tail->next = p;
     lru_head->prev = p;
   }
   release(&lru_lock);
