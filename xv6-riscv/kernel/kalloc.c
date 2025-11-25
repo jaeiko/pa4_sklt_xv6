@@ -210,23 +210,23 @@ swap_out(void)
   p->prev = 0;
 
   pa = (p - pages) * PGSIZE;  // Calculate physical addresses with page structure indexes
-
-  // Release lock to allow I/O sleep
-  release(&lru_lock);
   
-  // 4. Write page to disk (Safe now, this page is private)
-  swapwrite(pa, swap_idx, 0); 
-  
-  // 5. Update PTE
+  // 4. Update PTE
   // // Turn off PTE_V (Valid) and turn on PTE_S (Swapped)
 
-  // Save Swap Index to PTE upper bits   
+  // 5. Save Swap Index to PTE upper bits   
   *pte = ((*pte) & 0x3FF) | ((uint64)swap_idx << 10);
   *pte &= ~PTE_V;
   *pte |= PTE_S;
 
   // 6. Flush TLB
   sfence_vma();
+
+  // Release lock to allow I/O sleep
+  release(&lru_lock);
+  
+  // 7. Write page to disk (Safe now, this page is private)
+  swapwrite(pa, swap_idx, 0); 
 
   // Return the physical address to be reused by kalloc
   return (void*)pa;
