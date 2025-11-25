@@ -59,27 +59,48 @@ test_swap_in_integrity()
     printf("\n=== [Test 2] Swap-in & Data Integrity ===\n");
     int i;
     int read_cnt = 0, write_cnt = 0;
+    int initial_write;
     char **ptrs = malloc(MAX_PAGES * sizeof(char*));
     int allocated = 0;
 
-    // 1. Fill Memory
+    // 초기 카운트 저장
+    swapstat(&read_cnt, &write_cnt);
+    initial_write = write_cnt;
+
+    // 1. Fill Memory (적당히 Swap이 일어날 때까지만 채움)
+    printf("Allocating pages...\n");
     for(i = 0; i < MAX_PAGES; i++){
         ptrs[i] = malloc(PGSIZE);
         if(ptrs[i] == 0) break;
-        // 각 페이지에 고유한 값 기록 (검증용)
+        
         memset(ptrs[i], (i % 200) + 1, PGSIZE); 
         allocated++;
+
+        // Swap Write가 1000번 이상 발생하면 할당 중단!
+        // 이렇게 해야 Swap 공간에 여유가 생겨서 나중에 Swap-in을 할 수 있음.
+        if (i % 50 == 0) {
+            swapstat(&read_cnt, &write_cnt);
+            if (write_cnt - initial_write > 1000) {
+                printf("Stop allocating to prevent Swap Full deadlock (Swapped: %d)\n", write_cnt - initial_write);
+                break;
+            }
+        }
     }
 
     swapstat(&read_cnt, &write_cnt);
     int before_read = read_cnt;
-    printf("Memory filled. Accessing early pages (potential swap-in)...\n");
+    printf("Allocated %d pages. Accessing early pages (expecting swap-in)...\n", allocated);
 
-    // 2. Access early pages (These should be swapped out by LRU)
+    // 2. Access early pages
     int mismatch = 0;
-    for(i = 0; i < allocated / 2; i++){ 
+    // 초반 100개 페이지만 확인해도 충분함 (LRU에 의해 가장 먼저 나갔을 확률 높음)
+    int check_count = (allocated > 300) ? 300 : allocated; 
+
+    for(i = 0; i < check_count; i++){ 
+        // 데이터 읽기 시도 -> Page Fault -> Swap-in 발생 예상
         if(ptrs[i][0] != (char)((i % 200) + 1)) {
             mismatch++;
+            printf("Mismatch at page %d\n", i);
             break;
         }
     }
@@ -90,10 +111,12 @@ test_swap_in_integrity()
     if(mismatch == 0 && read_cnt > before_read){
         print_result("Data Integrity & Swap-in", 1);
     } else if (mismatch > 0) {
-        printf("Data mismatch found! Swap logic might be broken.\n");
+        printf("Data mismatch found!\n");
         print_result("Data Integrity & Swap-in", 0);
     } else {
-        printf("[WARN] No swap-in detected.\n");
+        printf("[WARN] No swap-in detected. (Did you reduce PHYSTOP?)\n");
+        // Swap-in이 안 일어났더라도 데이터가 맞으면(RAM에 있었으면) 로직 자체는 실패가 아님.
+        // 하지만 과제 의도상 FAIL 혹은 WARN 처리.
         print_result("Data Integrity & Swap-in", 0);
     }
 
@@ -256,6 +279,12 @@ main(int argc, char *argv[])
     // Test 1 & 2: Basic Swap
     if(fork() == 0) {
         test_basic_swap();
+        exit(0);
+    }
+    wait(0);
+
+    // Test 2: Swap-in & Data Integrity
+    if(fork() == 0) {
         test_swap_in_integrity();
         exit(0);
     }

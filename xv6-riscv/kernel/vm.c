@@ -370,29 +370,26 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
             flags |= PTE_A; 
             *pte = PA2PTE(parent_pa) | flags;
 
+            // The parent page has returned to memory and must be registered with the LRU immediately (the parent page must remain in memory in the event of a child assignment failure)
+            pages[parent_pa / PGSIZE].pagetable = old;
+            pages[parent_pa / PGSIZE].vaddr = (char*)i;
+            lru_add(parent_pa);
+
             // 5. Allocate memory for CHILD
             if((mem = kalloc()) == 0) {
-                // Use parent_pa (which holds the address), not uninitialized 'pa'
-                kfree((void*)parent_pa); 
                 goto err;
             }
             
             // 6. Copy data from Parent to Child
             memmove(mem, parent_mem, PGSIZE);
-
-            pages[parent_pa / PGSIZE].pagetable = old;
-            pages[parent_pa / PGSIZE].vaddr = (char*)i;
             
-            // 7. Add Parent page to LRU list
-            lru_add(parent_pa);
-            
-            // 8. Map Child Page
+            // 7. Map Child Page
             if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
               kfree(mem);
               goto err;
             }
 
-            // 9. Flush TLB
+            // 8. Flush TLB
             sfence_vma();
             
             continue; 

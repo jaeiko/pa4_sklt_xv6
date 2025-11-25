@@ -165,9 +165,15 @@ swap_out(void)
   while(1){
     pte = walk(p->pagetable, (uint64)p->vaddr, 0);
 
+    // Defense code: PTE is not valid (just in case)
+    if(pte == 0 || (*pte & PTE_V) == 0) {
+      p = p->next;
+      continue;
+    }
+    
     if((*pte) & PTE_A){
       *pte &= ~PTE_A;     // Give second chance
-      p = p->prev;
+      p = p->next;
     } else {
       break; // Victim found
     }
@@ -197,8 +203,8 @@ swap_out(void)
   } else {
     p->prev->next = p->next;
     p->next->prev = p->prev;
-    if(lru_head == p)
-      lru_head = p->next; // Move the head next (Clock needle movement effect)
+    
+    lru_head = p->next; // Move the head next
   }
   p->next = 0;
   p->prev = 0;
@@ -213,10 +219,11 @@ swap_out(void)
   
   // 5. Update PTE
   // // Turn off PTE_V (Valid) and turn on PTE_S (Swapped)
-  *pte &= ~PTE_V;
-  *pte |= PTE_S;     
+
   // Save Swap Index to PTE upper bits   
   *pte = ((*pte) & 0x3FF) | ((uint64)swap_idx << 10);
+  *pte &= ~PTE_V;
+  *pte |= PTE_S;
 
   // 6. Flush TLB
   sfence_vma();
@@ -241,9 +248,12 @@ kalloc(void)
   release(&kmem.lock);
 
   if(!r) {
-        // If there is no memory, try Swap out
-        r = swap_out();
-        if(!r) return 0; // Really OOM
+    // If there is no memory, try Swap out
+    r = swap_out();
+    if(!r) { 
+      printf("kalloc: out of memory\n");
+      return 0; // Really OOM
+    }
   }
 
   memset((char*)r, 5, PGSIZE);
